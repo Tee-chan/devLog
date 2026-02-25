@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 datasource db {
   provider = "sqlite"
 }
@@ -23,6 +17,18 @@ model User {
   commits  Commit[]
   repos    Repo[]
   sessions Session[]
+  settings UserSettings?
+}
+
+model UserSettings {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  llmBaseUrl  String   @default("http://localhost:11434")
+  llmModel    String   @default("llama3.2")
+  llmApiKey   String?
+  llmProvider String   @default("custom")
+  updatedAt   DateTime @updatedAt
 }
 
 model Account {
@@ -49,12 +55,13 @@ model Repo {
   owner     String
   name      String
   fullName  String   @unique
-  url       String
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
-  commits   Commit[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  url           String
+  webhookSecret String?
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  commits       Commit[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Commit {

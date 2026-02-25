@@ -7,6 +7,10 @@ const adapter = new PrismaBetterSqlite3({
   url: process.env.DATABASE_URL ?? "file:./prisma/dev.db",
 });
 
+if (process.env.NODE_ENV !== "production") {
+  delete (global as any).prisma;
+}
+
 export const prisma =
   globalForPrisma.prisma ?? new PrismaClient({ adapter });
 

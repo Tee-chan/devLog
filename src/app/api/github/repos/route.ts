@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 
 const GITHUB_API = "https://api.github.com";
 
 export async function GET(request: Request) {
-  const session = await getServerSession(authOptions);
-  const token = session?.user?.githubAccessToken;
+  const session = await auth();
+  const token = session?.accessToken;
 
   if (!token) {
     return NextResponse.json(
-      { error: "Not signed in or no GitHub access token" },
+      { error: "Not signed in or no access token" },
       { status: 401 }
     );
   }

@@ -10,9 +10,3 @@ declare module "next-auth" {
   }
 }
 
-declare module "next-auth/jwt" {
-  interface JWT {
-    githubAccessToken?: string;
-    githubProfile?: unknown;
-  }
-}

@@ -3,6 +3,12 @@ import GitHub from "next-auth/providers/github";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "./prisma";
 
+declare module "next-auth" {
+  interface Session {
+    accessToken: string | null;
+  }
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma as any),
   session: {
@@ -29,7 +35,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
+
       }
+      const account = await prisma.account.findFirst({
+        where: { userId: user.id, provider: "github" },
+        select: { access_token: true },
+      });
+      session.accessToken = account?.access_token ?? null;
       return session;
     },
   },

@@ -2,31 +2,34 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fetchRecentCommits } from "@/lib/github";
 import { summarizeCommits } from "@/lib/llm/ollama";
+import { auth } from "@/lib/auth";
 
-const DEFAULT_OWNER = process.env.DEFAULT_REPO_OWNER;
-const DEFAULT_REPO = process.env.DEFAULT_REPO_NAME;
-
-export async function POST() {
+export async function POST(req: Request) {
   try {
-    if (!DEFAULT_OWNER || !DEFAULT_REPO) {
+    const session = await auth();
+    if (!session?.accessToken || !session.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { owner, repo: repoName, branch } = await req.json();
+
+    if (!owner || !repoName) {
       return NextResponse.json(
-        {
-          error:
-            "DEFAULT_REPO_OWNER and DEFAULT_REPO_NAME must be set in .env.local",
-        },
+        { error: "owner and repo are required" },
         { status: 400 }
       );
     }
 
-    const repoFullName = `${DEFAULT_OWNER}/${DEFAULT_REPO}`;
+    const repoFullName = `${owner}/${repoName}`;
 
     const repo = await (prisma as any).repo.upsert({
       where: { fullName: repoFullName },
       create: {
-        owner: DEFAULT_OWNER,
-        name: DEFAULT_REPO,
+        owner,
+        name: repoName,
         fullName: repoFullName,
         url: `https://github.com/${repoFullName}`,
+        userId: session.user.id,
       },
       update: {},
     });
@@ -37,10 +40,12 @@ export async function POST() {
     });
 
     const commits = await fetchRecentCommits({
-      owner: DEFAULT_OWNER,
-      repo: DEFAULT_REPO,
+      owner,
+      repo: repoName,
+      token: session.accessToken,
       perPage: 50,
       since: existingLatest?.authoredAt.toISOString(),
+      branch,
     });
 
     if (!commits.length) {
@@ -59,15 +64,38 @@ export async function POST() {
             committedAt: null,
             url: c.html_url,
             repoId: repo.id,
+            userId: session.user.id,
           },
           update: {},
         })
       )
     );
 
-    const summary = await summarizeCommits(
-      created.map((c: any) => ({ sha: c.sha, message: c.message }))
-    );
+    const userSettings = await (prisma as any).userSettings.findUnique({
+      where: { userId: session.user.id },
+    });
+
+    const commitsToSummarize = created.map((c: any) => ({
+      sha: c.sha,
+      message: c.message,
+    }));
+
+    let summary = "";
+    if (commitsToSummarize.length > 0) {
+      if (userSettings?.llmProvider === "openai" && userSettings?.llmApiKey) {
+        const { summarizeWithOpenAI } = await import("@/lib/llm/openai");
+        summary = await summarizeWithOpenAI(commitsToSummarize, {
+          apiKey: userSettings.llmApiKey,
+          baseUrl: userSettings.llmBaseUrl,
+          model: userSettings.llmModel
+        });
+      } else {
+        summary = await summarizeCommits(
+          commitsToSummarize,
+          userSettings || undefined
+        );
+      }
+    }
 
     if (summary) {
       await (prisma as any).commit.updateMany({
@@ -89,3 +117,68 @@ export async function POST() {
   }
 }
 
+export async function GET(req: Request) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const owner = searchParams.get("owner");
+    const repo = searchParams.get("repo");
+    const range = searchParams.get("range") || "all";
+
+    if (!owner || !repo) {
+      return NextResponse.json(
+        { error: "owner and repo are required" },
+        { status: 400 }
+      );
+    }
+
+    const repoFullName = `${owner}/${repo}`;
+
+    const dbRepo = await (prisma as any).repo.findUnique({
+      where: { fullName: repoFullName },
+    });
+
+    if (!dbRepo) {
+      return NextResponse.json({ commits: [], stats: null });
+    }
+
+    let dateFilter = {};
+    if (range !== "all") {
+      const now = new Date();
+      if (range === "1d") now.setDate(now.getDate() - 1);
+      else if (range === "7d") now.setDate(now.getDate() - 7);
+      else if (range === "30d") now.setDate(now.getDate() - 30);
+
+      dateFilter = {
+        authoredAt: { gte: now }
+      };
+    }
+
+    const commits = await (prisma as any).commit.findMany({
+      where: {
+        repoId: dbRepo.id,
+        userId: session.user.id,
+        ...dateFilter
+      },
+      orderBy: { authoredAt: "desc" },
+    });
+
+    const stats = {
+      totalCommits: commits.length,
+      authors: new Set(commits.map((c: any) => c.authorName)).size,
+      lastCommit: commits.length > 0 ? commits[0].authoredAt : null,
+    };
+
+    return NextResponse.json({ commits, stats });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: "Failed to fetch commits" },
+      { status: 500 }
+    );
+  }
+}

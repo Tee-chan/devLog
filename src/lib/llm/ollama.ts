@@ -1,8 +1,11 @@
-const OLLAMA_HOST = process.env.OLLAMA_HOST ?? "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3.2";
-
-export async function summarizeCommits(messages: { sha: string; message: string }[]) {
+export async function summarizeCommits(
+  messages: { sha: string; message: string }[],
+  settings?: { llmBaseUrl?: string | null; llmModel?: string | null }
+) {
   if (!messages.length) return "";
+
+  const host = settings?.llmBaseUrl || process.env.OLLAMA_HOST || "http://localhost:11434";
+  const model = settings?.llmModel || process.env.OLLAMA_MODEL || "llama3.2";
 
   const prompt = [
     "We help developers prepare for a daily standup.",
@@ -14,13 +17,13 @@ export async function summarizeCommits(messages: { sha: string; message: string 
   ].join("\n");
 
   try {
-    const res = await fetch(`${OLLAMA_HOST}/api/chat`, {
+    const res = await fetch(`${host}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
+        model: model,
         messages: [
           {
             role: "user",
