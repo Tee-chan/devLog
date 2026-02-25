@@ -82,6 +82,14 @@ export async function POST(req: Request) {
 
     let summary = "";
     if (commitsToSummarize.length > 0) {
+      console.log(`[Sync] Attempting to summarize ${commitsToSummarize.length} commits...`);
+      console.log(`[Sync] Provider Settings:`, {
+        provider: userSettings?.llmProvider,
+        baseUrl: userSettings?.llmBaseUrl,
+        model: userSettings?.llmModel,
+        hasApiKey: !!userSettings?.llmApiKey,
+      });
+
       if (userSettings?.llmProvider === "openai" && userSettings?.llmApiKey) {
         const { summarizeWithOpenAI } = await import("@/lib/llm/openai");
         summary = await summarizeWithOpenAI(commitsToSummarize, {
@@ -89,11 +97,13 @@ export async function POST(req: Request) {
           baseUrl: userSettings.llmBaseUrl,
           model: userSettings.llmModel
         });
+        console.log(`[Sync] OpenAI Summarization Response length: ${summary.length || "Empty"}`);
       } else {
         summary = await summarizeCommits(
           commitsToSummarize,
           userSettings || undefined
         );
+        console.log(`[Sync] Ollama Summarization Response length: ${summary.length || "Empty"}`);
       }
     }
 
